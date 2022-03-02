@@ -2,6 +2,7 @@
 ///
 /// An enum that represents the outcome of a game.
 ///
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub enum Outcome 
 {
     X(f64),

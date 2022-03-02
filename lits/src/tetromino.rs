@@ -1,8 +1,9 @@
 
 use lazy_static::lazy_static;
 use regex::Regex;
+
 use std::collections::{BTreeSet, HashMap};
-use std::sync::Mutex;
+use std::sync::RwLock;
 
 use super::board::Board;
 use super::colour::Colour;
@@ -91,10 +92,28 @@ impl notate::Notate for Tetromino
     }
 }
 
+pub const TETROMINO_RANGE : usize = 1293;
+
 lazy_static! 
 {
-    static ref MOVEMAP_FWD : Mutex<HashMap<Tetromino, usize>> = Mutex::new(HashMap::new());
-    static ref MOVEMAP_REV : Mutex<HashMap<usize, Tetromino>> = Mutex::new(HashMap::new()); 
+    static ref MOVEMAP_FWD : RwLock<HashMap<Tetromino, usize>> = RwLock::new(HashMap::new());
+    static ref MOVEMAP_REV : RwLock<HashMap<usize, Tetromino>> = RwLock::new(HashMap::new()); 
+}
+
+impl std::convert::From<usize> for Tetromino 
+{
+    fn from (n: usize) -> Tetromino 
+    {
+        MOVEMAP_REV.read().unwrap().get(& n).unwrap().clone()    
+    }
+}
+
+impl std::convert::Into<usize> for Tetromino 
+{
+    fn into (self) -> usize 
+    {
+        MOVEMAP_FWD.read().unwrap().get(& self).unwrap().clone()    
+    }
 }
 
 impl Tetromino 
@@ -222,7 +241,7 @@ impl Tetromino
                 Point::new(0, 0),
                 Point::new(0, 1),
                 Point::new(0, 2),
-                Point::new(1, 0)
+                Point::new(1, 2)
             ],
             Colour::I => vec! 
             [
@@ -233,17 +252,17 @@ impl Tetromino
             ],
             Colour::T => vec! 
             [
-                Point::new(0, 1),
-                Point::new(1, 0),
+                Point::new(0, 0),
                 Point::new(1, 1),
-                Point::new(2, 1)
+                Point::new(1, 0),
+                Point::new(2, 0)
             ],
             Colour::S => vec! 
             [
-                Point::new(0, 0),
-                Point::new(1, 0),
+                Point::new(0, 1),
                 Point::new(1, 1),
-                Point::new(2, 1)
+                Point::new(1, 0),
+                Point::new(2, 0)
             ],
             _         => panic!("Cannot get the reference of the null tetromino.")
         };
@@ -254,13 +273,16 @@ impl Tetromino
     ///
     /// Sets up the movemap, which is the bijection between tetromino and integer.
     ///
+    /// This function MUST be called before any type conversions are applied to 
+    /// the Tetromino type, otherwise panics will occur.
+    ///
     pub fn initialize ()
     {
         let board = Board::blank();
-        let mut idx = 0;
+        let mut idx = 1;
 
-        let mut fwd = MOVEMAP_FWD.lock().unwrap();
-        let mut rev = MOVEMAP_REV.lock().unwrap();
+        let mut fwd = MOVEMAP_FWD.write().unwrap(); 
+        let mut rev = MOVEMAP_REV.write().unwrap();
 
         for tetromino in & board.enumerate_moves()
         {
@@ -268,6 +290,22 @@ impl Tetromino
             rev.insert(idx, tetromino.clone());
             idx += 1;
         }
+
+        // Null tetromino.
+
+        let mut template = rev.get(& 1).unwrap().clone();
+        template.colour = Colour::None;
+
+        fwd.insert(template.clone(), 0);
+        rev.insert(0, template.clone());
+    }
+
+    ///
+    /// Determines if the given tetromino is null.
+    ///
+    pub fn is_null (& self) -> bool 
+    {
+        self.colour == Colour::None
     }
 
     ///
@@ -288,6 +326,14 @@ impl Tetromino
     }
 
     ///
+    /// Returns the null tetromino.
+    ///
+    pub fn null () -> Tetromino
+    {
+        0.into()
+    }
+
+    ///
     /// Returns a view on this tetromino's points.
     ///
     pub fn points (& self) -> & Vec<Point>
@@ -302,6 +348,14 @@ impl Tetromino
     pub fn points_real (& self) -> Vec<Point>
     {
         self.points.iter().map( |& p| self.anchor + p ).collect::<Vec<Point>>()
+    }
+
+    ///
+    /// Gets the number of tetrominos possible, including null.
+    ///
+    pub fn range () -> usize 
+    {
+        MOVEMAP_FWD.read().unwrap().len()
     }
 
     ///

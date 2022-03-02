@@ -81,7 +81,7 @@ impl Transform
         }
         Transform::normalize(& mut points);
 
-        Tetromino::construct_raw(& target.colour(), & target.anchor(), & points, & (& target.transform() + self))
+        Tetromino::construct_raw(& target.colour(), & target.anchor(), & points, & (& target.transform() + self).canonicalize(& target.colour()))
     }
 
     ///

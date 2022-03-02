@@ -1,13 +1,20 @@
-[package]
-name = "client"
-version = "0.1.0"
-edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[package]
+
+name        = "client"
+version     = "0.1.0"
+edition     = "2021"
 
 [dependencies]
-lits = { path = "../lits" }
-litstp = { path = "../litstp" }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-utils = { path = "../utils" }
+
+clap        = { version = "3.0", features = ["derive"] }
+coffee      = { version = "0.4", features = ["vulkan"] }
+gtp         = "0.1.2"
+lazy_static = "1.4.0"
+regex       = "1"
+serde       = { version = "1.0", features = ["derive"] }
+serde_json  = "1.0"
+toml        = "0.5"
+
+lits        = { path = "../lits" }
+utils       = { path = "../utils" }

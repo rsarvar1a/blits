@@ -1,18 +1,10 @@
+
 [workspace]
 
 members = [
-
-  # Common.
-
-  "utils",
-
-  # Libraries.
-
-  "lits",
-  "litstp",
-
-  # Binaries.
-
   "client",
-  "engine"
+  "engine",
+  "lits",
+  "utils",
 ]
+resolver = "2"

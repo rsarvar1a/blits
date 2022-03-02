@@ -1,5 +1,6 @@
 
 use flexi_logger::{FileSpec, Logger, with_thread, WriteMode};
+use super::error::*;
 
 ///
 /// Macros to write to the backing file logger.
@@ -9,7 +10,7 @@ pub use log::{trace as trace, debug as debug, info as info, warn as warn, error 
 ///
 /// Initializes the logstream to write to the given file.
 ///
-pub fn initialize (path: & str, filename: & str) -> Logger
+pub fn initialize (path: & str, filename: & str) -> Result<Logger>
 {
     let file_spec = FileSpec::default()
         .directory(path)
@@ -17,9 +18,11 @@ pub fn initialize (path: & str, filename: & str) -> Logger
         .use_timestamp(true)
         .suffix("log");
 
-    Logger::try_with_str("info").unwrap()
+    let logger = Logger::try_with_str("info")?
         .log_to_file(file_spec)
         .write_mode(WriteMode::BufferAndFlush)
-        .format_for_files(with_thread)
+        .format_for_files(with_thread);
+
+    Ok(logger)
 }
 

@@ -44,7 +44,7 @@ impl notate::Notate for Colour
             Colour::I    => "I".to_string(),
             Colour::T    => "T".to_string(),
             Colour::S    => "S".to_string(),
-            Colour::None => "_".to_string()
+            Colour::None => "-".to_string()
         }
     }
 
@@ -76,6 +76,21 @@ impl Colour
             Colour::T    => 2,
             Colour::S    => 3,
             Colour::None => panic!("Cannot take index of the null colour.")
+        }
+    }
+
+    ///
+    /// Gets the next colour including none.
+    ///
+    pub fn next_and_none (& self) -> Colour 
+    {
+        match self 
+        {
+            Colour::L    => Colour::I,
+            Colour::I    => Colour::T,
+            Colour::T    => Colour::S,
+            Colour::S    => Colour::None,
+            Colour::None => Colour::L
         }
     }
 

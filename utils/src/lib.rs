@@ -14,3 +14,5 @@ pub mod notate;
 pub mod serialize;
 pub use self::serialize::*;
 
+pub mod uuid;
+

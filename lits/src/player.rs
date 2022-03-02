@@ -39,7 +39,7 @@ impl notate::Notate for Player
         {
             Player::X    => "X".to_string(),
             Player::O    => "O".to_string(),
-            Player::None => "_".to_string()
+            Player::None => "-".to_string()
         }
     }
 
@@ -67,6 +67,19 @@ impl Player
             Player::X    => Player::O,
             Player::O    => Player::X,
             Player::None => panic!("Something has gone terribly wrong: tried to get next() of a null player.")
+        }
+    }
+
+    ///
+    /// Returns the next player or none.
+    ///
+    pub fn next_and_none (& self) -> Player 
+    {
+        match self 
+        {
+            Player::X     => Player::O,
+            Player::O     => Player::None,
+            Player::None  => Player::X
         }
     }
 

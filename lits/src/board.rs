@@ -22,7 +22,8 @@ pub struct Board
     score_tiles: Vec<Vec<Player>>,
     piece_tiles: Vec<Vec<Colour>>,
     pieces_remaining: Vec<usize>,
-    attach_points: BTreeMap<Point, BTreeSet<Colour>>
+    attach_points: BTreeMap<Point, BTreeSet<Colour>>,
+    to_move: Player
 }
 
 impl notate::Notate for Board 
@@ -53,9 +54,10 @@ impl notate::Notate for Board
     {
         let context = format!("Invalid notation '{}' for board.", s);
 
-        // The hashstring has length 205: 200 characters representing the 200 tiles of the board in
-        // (p, c) order; a comma; and 4 characters representing the number of pieces remaining for 
-        // each piece colour in LITS order.
+        // The hashstring has length 207: 200 characters representing the 200 tiles of the board in
+        // (p, c) order; a comma; 4 characters representing the number of pieces remaining for 
+        // each piece colour in LITS order; a comma; and a character representing the player to
+        // move.
 
         let uncompressed = b65k::decode(s); 
         match uncompressed.len()
@@ -95,7 +97,20 @@ impl notate::Notate for Board
             };
         }
 
-        Board::new(& score_tiles, & piece_tiles, & piece_pool)
+        match & uncompressed[205 ..= 205]
+        {
+            "," => {},
+            _   => return Err(error::error!("Expected a comma separating the piece counts and moving player.")).context(context.clone())
+        }
+
+        let who_to_move = Player::parse(& uncompressed[206 ..= 206]).context(context.clone())?;
+        match who_to_move
+        {
+            Player::X | Player::O => {},
+            _ => return Err(error::error!("The player to move cannot be null.")).context(context.clone())
+        };
+
+        Board::new(& score_tiles, & piece_tiles, & piece_pool, who_to_move)
     }
 }
 
@@ -141,7 +156,8 @@ impl Board
             score_tiles: vec![vec![Player::None; 10]; 10],
             piece_tiles: vec![vec![Colour::None; 10]; 10],
             pieces_remaining: vec![5; 4],
-            attach_points: BTreeMap::new()
+            attach_points: BTreeMap::new(),
+            to_move: Player::X
         };
 
         for i in 0 .. 10 
@@ -163,28 +179,80 @@ impl Board
     {
         self.attach_points.clear();
 
+        let mut is_empty = true;
+
         for i in 0 .. 10 
         {
             for j in 0 .. 10 
             {
-                let point = Point::new(i, j);
-
-                // If there is no colour at the point, and it has at least one coloured neighbour,
-                // then compute the colourset and add the attach point if and only if the colourset 
-                // is non-empty.
-
-                if self.piece_tiles[point.x() as usize][point.y() as usize] == Colour::None 
-                    && point.neighbours_on_board().iter().any(|& p| self.piece_tiles[p.x() as usize][p.y() as usize] != Colour::None)
+                if self.piece_tiles[i][j] != Colour::None 
                 {
-                    let mut colourset : BTreeSet<Colour> = BTreeSet::from([Colour::L, Colour::I, Colour::T, Colour::S]);
-                    point.neighbours_on_board().iter().for_each(|& p| { colourset.remove(& self.piece_tiles[p.x() as usize][p.y() as usize]); });
-                    if ! colourset.is_empty()
+                    is_empty = false;
+                }
+            }
+        }
+
+        if ! is_empty
+        {
+            for i in 0 .. 10 
+            {
+                for j in 0 .. 10 
+                {
+                    let point = Point::new(i, j);
+
+                    // If there is no colour at the point, and it has at least one coloured neighbour,
+                    // then compute the colourset and add the attach point if and only if the colourset 
+                    // is non-empty.
+
+                    if self.piece_tiles[point.x() as usize][point.y() as usize] == Colour::None 
+                        && point.neighbours_on_board().iter().any(|& p| self.piece_tiles[p.x() as usize][p.y() as usize] != Colour::None)
                     {
-                        self.attach_points.insert(point, colourset);
+                        let mut colourset : BTreeSet<Colour> = BTreeSet::from([Colour::L, Colour::I, Colour::T, Colour::S]);
+                        point.neighbours_on_board().iter().for_each(|& p| { colourset.remove(& self.piece_tiles[p.x() as usize][p.y() as usize]); });
+                        if ! colourset.is_empty()
+                        {
+                            self.attach_points.insert(point, colourset);
+                        }
                     }
                 }
             }
         }
+        else 
+        {
+            for i in 0 .. 10 
+            {
+                for j in 0 .. 10 
+                {
+                    let point = Point::new(i, j);
+                    let colourset = BTreeSet::from([Colour::L, Colour::I, Colour::T, Colour::S]);
+                    self.attach_points.insert(point, colourset);
+                }
+            }
+        }
+    }
+
+    ///
+    /// Returns the colour at the given tile.
+    ///
+    pub fn colour_at (& self, i: i32, j: i32) -> Colour 
+    {
+        self.piece_tiles[i as usize][j as usize]
+    }
+
+    ///
+    /// Cycles the colour at this tile for setup purposes.
+    ///
+    pub fn cycle_colour (& mut self, i: i32, j: i32)
+    {
+        self.piece_tiles[i as usize][j as usize] = self.piece_tiles[i as usize][j as usize].next_and_none();
+    }
+
+    ///
+    /// Cycles the colour at this tile for setup purposes.
+    ///
+    pub fn cycle_player (& mut self, i: i32, j: i32)
+    {
+        self.score_tiles[i as usize][j as usize] = self.score_tiles[i as usize][j as usize].next_and_none();
     }
 
     ///
@@ -229,7 +297,7 @@ impl Board
     ///
     /// Returns a new board with the given state.
     ///
-    pub fn new (score_tiles: & Vec<Vec<Player>>, piece_tiles: & Vec<Vec<Colour>>, remaining: & Vec<usize>) -> Result<Board>
+    pub fn new (score_tiles: & Vec<Vec<Player>>, piece_tiles: & Vec<Vec<Colour>>, remaining: & Vec<usize>, to_move: Player) -> Result<Board>
     {
         let context = "Failed to create a new board.";
         let score_tiles = score_tiles.clone();
@@ -248,7 +316,7 @@ impl Board
             }
         }
 
-        let mut b = Board { score_tiles, piece_tiles, pieces_remaining, attach_points };
+        let mut b = Board { score_tiles, piece_tiles, pieces_remaining, attach_points, to_move };
         b.calculate_attach_points_from_scratch();
         Ok(b)
     }
@@ -269,11 +337,20 @@ impl Board
         self.pieces_remaining[tetromino.colour().as_index()] -= 1;
         let points = tetromino.points_real();
         points.iter().for_each(|& p| { self.piece_tiles[p.x() as usize][p.y() as usize] = tetromino.colour(); } );
+        self.to_move = self.to_move.next();
 
         // Update the attach points, using the real points as hints.
 
         self.update_attach_points_add(tetromino);
         Ok(())
+    }
+
+    ///
+    /// Returns the player at the given tile.
+    ///
+    pub fn player_at (& self, i: i32, j: i32) -> Player 
+    {
+        self.score_tiles[i as usize][j as usize]
     }
 
     ///
@@ -322,6 +399,14 @@ impl Board
     }
 
     ///
+    /// Gets the number of tetrominos of the given colour remaining to be played.
+    ///
+    pub fn remaining_of (& self, colour: & Colour) -> usize 
+    {
+        self.pieces_remaining[colour.as_index()]
+    }
+
+    ///
     /// Gets the result of this game.
     ///
     pub fn result (& self) -> Outcome 
@@ -342,7 +427,14 @@ impl Board
                 }
                 else 
                 {
-                    return Outcome::Draw;
+                    // If it's a draw, the result goes to whoever 
+                    // played the last tetromino.
+
+                    return match self.to_move().next() == Player::X 
+                    {
+                        true  => Outcome::X(0.0),
+                        false => Outcome::O(0.0)
+                    };
                 }
             }
         }
@@ -365,6 +457,14 @@ impl Board
             }
         }
         sum
+    }
+
+    ///
+    /// Sets a scoring tile at the given position.
+    ///
+    pub fn set_scoring_tile (& mut self, i: usize, j: usize, player: & Player)
+    {
+        * self.score_tiles.get_mut(i).unwrap().get_mut(j).unwrap() = * player;
     }
 
     ///
@@ -423,6 +523,14 @@ impl Board
     }
 
     ///
+    /// Returns the player to move.
+    ///
+    pub fn to_move (& self) -> Player 
+    {
+        self.to_move
+    }
+
+    ///
     /// Removes the given tetromino from the board, provided it was even there.
     ///
     pub fn undo_tetromino (& mut self, tetromino: & Tetromino) -> Result<()>
@@ -442,6 +550,7 @@ impl Board
         self.pieces_remaining[tetromino.colour().as_index()] += 1;
         let points = tetromino.points_real();
         points.iter().for_each(|& p| { self.piece_tiles[p.x() as usize][p.y() as usize] = Colour::None; } );
+        self.to_move = self.to_move.next();
 
         // Update the attach points.
 
