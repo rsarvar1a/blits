@@ -1,4 +1,6 @@
 
+use lits::Board;
+
 use tch::Tensor;
 
 ///
@@ -10,7 +12,7 @@ use tch::Tensor;
 #[derive(Debug)]
 pub struct Memory 
 {
-    pub state: Tensor,
+    pub board: Board,
     pub policy_valid: Tensor,
     pub end_result: Tensor
 }

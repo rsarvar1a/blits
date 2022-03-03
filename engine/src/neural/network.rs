@@ -58,12 +58,9 @@ impl Network
     ///
     /// For a given input tensor of board images, predicts the policy-value pairs.
     ///
-    pub fn forward (& self, input: & Tensor) -> (Tensor, Tensor)
+    pub fn forward (& self, input: Tensor) -> (Tensor, Tensor)
     {
-        let mut copy = Tensor::new();
-        copy.copy_(input);
-
-        let input_tensor = IValue::Tensor(copy);
+        let input_tensor = IValue::Tensor(input);
         let ivalue_tuple = self.model.forward_is(& [input_tensor]).unwrap();
 
         let mut policy = Tensor::new();
@@ -141,7 +138,7 @@ impl Network
     pub fn predict (& self, board: & Board) -> ([f32; TETROMINO_RANGE], f32)
     {
         let input : Tensor = Input::from(board.clone()).0;
-        let (policy, values) = self.forward(& input);
+        let (policy, values) = self.forward(input);
 
         // Extract the policy data by masking it against the set of valid 
         // moves in this state.
@@ -179,11 +176,9 @@ impl Network
     ///
     pub fn remember (& mut self, board: & Board, result: & Outcome)
     {
-        let state = Input::from(board.clone()).0;
-
         let mut mask = [0.0; TETROMINO_RANGE];
         board.enumerate_moves().iter().for_each(|t| { mask[<Tetromino as Into::<usize>>::into(t.clone())] = 1.0; } );
-        let policy_valid = Tensor::of_slice(& mask);
+        let policy_valid = Tensor::of_slice::<f32>(& mask);
 
         let val = match result 
         {
@@ -191,9 +186,9 @@ impl Network
             Outcome::O (_) => -1.0,
             _              => 0.0,
         };
-        let end_result = Tensor::of_slice(& [val]) * board.to_move().value();
+        let end_result = Tensor::of_slice::<f32>(& [val]) * board.to_move().value();
 
-        let memory = Memory { state, policy_valid, end_result };
+        let memory = Memory { board: board.clone(), policy_valid, end_result };
         self.mem.push(memory);
     }
 
@@ -220,7 +215,8 @@ impl Network
         {
             for mem in & self.mem 
             {
-                let (policy, values) = self.forward(& mem.state);
+                let input = Input::from(mem.board.clone()).0;
+                let (policy, values) = self.forward(input);
 
                 let loss_policy = policy.cross_entropy_for_logits(& mem.policy_valid).sum(tch::Kind::Float);
                 let loss_values = (values - & mem.end_result).pow_tensor_scalar(self.config.exp as f64);
