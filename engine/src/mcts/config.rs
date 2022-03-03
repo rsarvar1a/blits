@@ -36,7 +36,7 @@ impl Default for Config
 
 fn num_threads () -> usize 
 {
-    2
+    8
 }
 
 fn max_time_ms () -> usize 
@@ -51,5 +51,5 @@ fn discount () -> f32
 
 fn uct_const () -> f32 
 {
-    1.0
+    1.1
 }

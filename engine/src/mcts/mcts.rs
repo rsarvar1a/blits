@@ -7,10 +7,9 @@ use crate::neural::network::Network;
 use lits::*;
 
 use std::mem;
-use std::ptr;
 use std::sync::atomic::Ordering;
-use std::thread;
 
+use super::node::MoveID;
 use super::searcher::*;
 use super::threadpool::*;
 
@@ -22,9 +21,10 @@ use utils::notate::Notate;
 ///
 pub struct MCTS 
 {
-    threadpool: [u8; THREADPOOL_SIZE],
+    threadpool: ThreadPool,
     policy: Network,
-    config: MCTSConfig
+    config: MCTSConfig,
+    pub best_move: MoveID
 }
 
 impl MCTS 
@@ -36,7 +36,7 @@ impl MCTS
     ///
     pub fn best_move (& self) -> Tetromino 
     {
-        unsafe { & ** self.threadpool().threads[0].get() }.best_move.clone().into()
+        self.best_move.into()
     }
 
     ///
@@ -53,16 +53,12 @@ impl MCTS
     pub fn new (config: Config) -> Result<MCTS>
     {
         let mctsconfig = config.mcts;
-        let policy = match config.neural.use_best
-        {
-            true  => Network::from_best(& config.neural),
-            false => Network::from_template(& config.neural)
-        }?;
-        let poolarray = [0; THREADPOOL_SIZE];
+        let policy = Network::from_best(& config.neural)?;
+        let threadpool = ThreadPool::new();
 
-        let mcts = MCTS { config: mctsconfig, policy, threadpool: poolarray };
+        let mcts = MCTS { config: mctsconfig, policy, threadpool, best_move: 0 };
 
-        mcts.threadpool_initialize();
+        mcts.threadpool().set_parent(& mcts);
         mcts.threadpool().set_num_threads(mctsconfig.num_threads);
 
         Ok(mcts)
@@ -73,7 +69,12 @@ impl MCTS
     ///
     pub fn policy (& self) -> & mut Network 
     {
-        unsafe { mem::transmute::<& Network, & mut Network>(& self.policy) }
+        unsafe 
+        { 
+            mem::transmute::<& Network, & mut Network>(
+                & self.policy
+            ) 
+        }
     }
 
     ///
@@ -91,8 +92,9 @@ impl MCTS
     pub fn search (& self, position: & Board, uci: bool)
     {
         let pool = self.threadpool();
+        pool.state = position.clone();
 
-        pool.wait_for(SearcherFilter::All, SearcherEvent::Finish);
+        pool.wait_for(SearcherEvent::Finish);
         pool.stop.store(false, Ordering::Relaxed);
 
         for handle in pool.threads.iter_mut()
@@ -103,9 +105,7 @@ impl MCTS
             thread.initialize(position);
         }
 
-        pool.main_cond.set();
-        pool.wait_for(SearcherFilter::Main, SearcherEvent::Start);
-        pool.main_cond.lock();
+        pool.launch(position);
 
         if uci 
         {
@@ -121,7 +121,7 @@ impl MCTS
         let pool = self.threadpool();
         
         self.search(position, false);
-        pool.wait_for(SearcherFilter::All, SearcherEvent::Finish);
+        pool.wait_for(SearcherEvent::Finish);
         self.best_move()
     }
 
@@ -140,31 +140,9 @@ impl MCTS
     {
         unsafe 
         {
-            mem::transmute::<& [u8; THREADPOOL_SIZE], & mut ThreadPool>(
+            mem::transmute::<& ThreadPool, & mut ThreadPool>(
                 & self.threadpool
             )
-        }
-    }
-
-    ///
-    /// Initializes the threadpool.
-    ///
-    pub fn threadpool_initialize (& self)
-    {
-        unsafe 
-        {
-            let builder = thread::Builder::new()
-                .name("ThreadPool creator".to_owned());
-
-            let handle = builder.spawn_unchecked(
-                move ||
-                {
-                    let pool: * mut ThreadPool = mem::transmute::<& [u8; THREADPOOL_SIZE], & mut ThreadPool>(& self.threadpool);
-                    ptr::write(pool, ThreadPool::new(self));
-                }
-            );
-
-            handle.unwrap().join().unwrap();
         }
     }
 }

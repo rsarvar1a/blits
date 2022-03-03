@@ -48,4 +48,3 @@ model.eval()
 
 trace = torch.jit.trace(model, torch.rand(1, 5, 10, 10))
 trace.save("template.pt")
-

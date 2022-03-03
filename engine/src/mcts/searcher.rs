@@ -2,6 +2,7 @@
 use crate::config::*;
 
 use lits::{Board, Player, Tetromino};
+use utils::notate::Notate;
 
 use std::cell::UnsafeCell;
 use std::sync::Arc;
@@ -11,6 +12,8 @@ use std::time::{Duration, Instant};
 use super::node::*;
 use super::sync::*;
 use super::threadpool::*;
+
+use utils::log;
 
 ///
 /// An alias on usize for readability.
@@ -35,32 +38,6 @@ impl std::convert::Into<bool> for SearcherEvent
         {
             SearcherEvent::Start  => true,
             SearcherEvent::Finish => false
-        }
-    }
-}
-
-///
-/// An enum describing the type of a searcher.
-///
-pub enum SearcherFilter
-{
-    Main,
-    Worker,
-    All
-}
-
-impl SearcherFilter 
-{
-    ///
-    /// Determines whether the given filter matches the given thread. 
-    ///
-    pub fn matches (& self, id: TreeID) -> bool
-    {
-        match self 
-        {
-            SearcherFilter::Main   => id == 0,
-            SearcherFilter::Worker => id != 0,
-            SearcherFilter::All    => true
         }
     }
 }
@@ -95,6 +72,7 @@ pub struct Searcher
 
     pub tree: Vec<Node>,
     pub root: NodeID,
+    pub num_sims: usize,
 
     pub best_move: MoveID,
     pub best_eval: f32
@@ -330,63 +308,13 @@ impl Searcher
     }
 
     ///
-    /// Determines if this thread is main.
-    ///
-    pub fn is_main (& self) -> bool 
-    {
-        self.id == 0
-    }
-
-    ///
     /// Starts this searcher.
     ///
     pub fn launch (& mut self)
     {
-        self.search_status.set(true);
-
-        match self.is_main()
-        {
-            true  => self.launch_main(),
-            false => self.search_root()
-        };
-
-        self.search_status.set(false);
-    }
-
-    ///
-    /// Starts the search on the main thread, which has 
-    /// the specific responsbility to collect the best 
-    /// move in the position.
-    ///
-    pub fn launch_main (& mut self) 
-    {
-        self.pool().work_cond.set();
-
+        self.search_status.set(SearcherEvent::Start.into());
         self.search_root();
-
-        self.pool().work_cond.lock();
-        self.pool().set_stop_requirement(true);
-        self.pool().wait_for(SearcherFilter::Worker, SearcherEvent::Finish);
-
-        let mut best_move  = 0;
-        let mut best_score = f32::NEG_INFINITY;
-
-        self.pool().threads.iter_mut()
-            .map(|handle| unsafe { & mut (** handle.get()) })
-            .for_each(
-                |thread|
-                {
-                    let (this_piece, this_score) = thread.best_av_pair().clone();
-                    if this_score > best_score 
-                    {
-                        best_score = this_score;
-                        best_move  = this_piece;
-                    }
-                }
-            );
-
-        self.best_move = best_move;
-        self.best_eval = best_score;
+        self.search_status.set(SearcherEvent::Finish.into());
     }
 
     ///
@@ -409,6 +337,7 @@ impl Searcher
 
             tree: Vec::new(),
             root: 0,
+            num_sims: 0,
 
             best_move: 0,
             best_eval: 0.0
@@ -456,12 +385,16 @@ impl Searcher
     ///
     pub fn search_root (& mut self)
     {
+        log::debug!("Searcher started here.");
+
         let allowed_duration = Duration::from_millis(self.config.max_time_ms as u64);
         let start = Instant::now();
         let mut end = Instant::now();
+        let mut num_sims : usize = 0;
 
         while ! self.stop() && (end - start) < allowed_duration && self.root().is_unsolved()
         {
+            num_sims += 1;
             end = Instant::now();
             let mut id = self.root;
 
@@ -477,6 +410,7 @@ impl Searcher
                 {
                     let (value, found_leaf) = self.visit(id);
                     self.backpropagate(id, value, found_leaf);
+                    break;
                 }
                 else 
                 {
@@ -484,6 +418,8 @@ impl Searcher
                 }
             }
         }
+
+        self.num_sims = num_sims;
     }
 
     ///
@@ -513,7 +449,7 @@ impl Searcher
         for tetromino in & game.enumerate_moves()
         {
             let mut next_state = game.clone();
-            next_state.place_tetromino(& tetromino);
+            let _ = next_state.place_tetromino(& tetromino);
             let over = ! next_state.has_moves();
             let outcome = match over 
             {

@@ -3,6 +3,7 @@ use utils::{Serialize, Deserialize};
 
 pub use crate::mcts::config::Config as MCTSConfig;
 pub use crate::neural::config::Config as NeuralConfig;
+pub use crate::interfaces::selfplay::config::Config as SelfplayConfig;
 
 ///
 /// Represents a full configuration.
@@ -15,6 +16,9 @@ pub struct Config
 
     #[serde(default)]
     pub neural: NeuralConfig,
+
+    #[serde(default)]
+    pub selfplay: SelfplayConfig,
 
     #[serde(default = "log_path")]
     pub log_path: String

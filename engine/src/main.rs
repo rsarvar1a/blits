@@ -1,5 +1,6 @@
 
 #![feature(thread_spawn_unchecked)]
+#![feature(total_cmp)]
 
 mod config;
 mod interfaces;
@@ -37,8 +38,8 @@ fn main () -> Result<()>
     OpenOptions::new().read(true).open(& args.config)?.read_to_string(& mut config_str)?;
     let config : config::Config = toml::from_str(& config_str)?;
 
-    Tetromino::initialize();
     let _logger = log::initialize(& config.log_path, "engine");
+    Tetromino::initialize();
 
     match args.mode.as_str() 
     {

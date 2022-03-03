@@ -58,6 +58,32 @@ impl notate::Notate for Player
 impl Player 
 {
     ///
+    /// Returns the index of this player.
+    ///
+    pub fn as_index (& self) -> usize 
+    {
+        match self 
+        {
+            Player::X => 0,
+            Player::O => 1,
+            _         => panic!("Cannot take index of null in the non-null function.")
+        }
+    }
+
+    ///
+    /// Returns the index of the player including null.
+    ///
+    pub fn as_index_null (& self) -> usize 
+    {
+        match self 
+        {
+            Player::X    => 1,
+            Player::O    => 2,
+            Player::None => 0
+        }
+    }
+
+    ///
     /// Returns the player opposite this one.
     ///
     pub fn next (& self) -> Player 

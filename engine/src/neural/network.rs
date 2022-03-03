@@ -93,14 +93,20 @@ impl Network
     ///
     pub fn from_artifact (config: & NeuralConfig, artifact: & str) -> Result<Network>
     {
-        let mut net = Network::from_template(config)?;
-        
+        let vs = VarStore::new(Device::cuda_if_available());
+        let mem = vec![];
         let artifact_path = format!("{}/trained/{}", config.path, artifact);
-        net.vs.load(& artifact_path).context(format!("Failed to load weights file from '{}'.", & artifact_path))?;
+        let model = tch::TrainableCModule::load(& artifact_path, vs.root()).context(format!("Failed to load model file from '{}'.", & artifact_path))?;
+
+        let mut net = Network { config: config.clone(), vs, model, mem };
+        net.model.set_eval();
 
         Ok(net)
     }
 
+    ///
+    /// Loads the network from the best network provided in the config.
+    ///
     pub fn from_best (config: & NeuralConfig) -> Result<Network>
     {
         Network::from_artifact(config, & config.best)
@@ -120,6 +126,13 @@ impl Network
         net.model.set_eval();
 
         Ok(net)
+    }
+
+    ///
+    /// Injects noise into the model weights.
+    ///
+    pub fn make_noise (& mut self)
+    {
     }
 
     ///
@@ -190,7 +203,7 @@ impl Network
     pub fn save (& self, group: & str, path: & str) -> Result<()> 
     {
         let artifact_path = format!("{}/trained/{}/{}", self.config.path, group, path);
-        self.vs.save(& artifact_path).context(error!(format!("Failed to save model to path '{}'.", & artifact_path)))?;
+        self.model.save(& artifact_path).context(error!(format!("Failed to save model to path '{}'.", & artifact_path)))?;
         Ok(())
     }
 
@@ -214,6 +227,8 @@ impl Network
                 optimizer.backward_step(& (& loss_policy + & loss_values));
             }
         }
+
+        self.mem.clear();
 
         self.model.set_eval();
     }

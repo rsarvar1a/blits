@@ -42,6 +42,8 @@ impl LTPInterface
     ///
     pub fn run_loop (& mut self) 
     {
+        log::info!("LTPI controller");
+
         let mut cmdline = String::new();
         loop 
         {

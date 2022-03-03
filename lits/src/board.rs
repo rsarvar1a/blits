@@ -36,8 +36,7 @@ impl notate::Notate for Board
         {
             for j in 0 .. 10 
             {
-                boardstr += & self.score_tiles[i][j].notate();
-                boardstr += & self.piece_tiles[i][j].notate();
+                boardstr += & self.notate_tile(i, j);
             }
         }
         boardstr += & ",".to_string();
@@ -46,40 +45,42 @@ impl notate::Notate for Board
         {
             boardstr += & self.pieces_remaining[archetype.as_index()].to_string();
         }
+        boardstr += & ",".to_string();
 
-        b65k::encode(& boardstr)
+        boardstr += & self.to_move().notate();
+
+        boardstr
     }
 
     fn parse(s: & str) -> Result<Board> 
     {
         let context = format!("Invalid notation '{}' for board.", s);
 
-        // The hashstring has length 207: 200 characters representing the 200 tiles of the board in
+        // The hashstring has length 107: 100 characters representing the 100 tiles of the board in
         // (p, c) order; a comma; 4 characters representing the number of pieces remaining for 
         // each piece colour in LITS order; a comma; and a character representing the player to
         // move.
 
-        let uncompressed = b65k::decode(s); 
+        let uncompressed = s.to_string();
         match uncompressed.len()
         {
-            205 => {},
+            107 => {},
             _   => return Err(error::error!("Expected a length-205 uncompressed string.")).context(context.clone())
         };
 
         let mut score_tiles : Vec<Vec<Player>> = vec![vec![Player::None; 10]; 10];
         let mut piece_tiles : Vec<Vec<Colour>> = vec![vec![Colour::None; 10]; 10];
 
-        for idx in (0 .. 200).step_by(2)
+        for idx in 0 .. 100
         {
-            let (i, j) = ((idx / 2) / 10, (idx / 2) % 10);
-            let score = Player::parse(& uncompressed[idx ..= idx]).context(context.clone())?;
-            let piece = Colour::parse(& uncompressed[idx + 1 ..= idx + 1]).context(context.clone())?;
+            let (i, j) = (idx / 10, idx % 10);
+            let (score, piece) = Board::parse_tile(& uncompressed[idx ..= idx])?;
 
             score_tiles[i][j] = score;
             piece_tiles[i][j] = piece;
         }
 
-        match & uncompressed[200 ..= 200]
+        match & uncompressed[100 ..= 100]
         {
             "," => {},
             _   => return Err(error::error!("Expected a comma separating the board and piece counts.")).context(context.clone())
@@ -88,7 +89,7 @@ impl notate::Notate for Board
         let mut piece_pool = Vec::new();
         for archetype in [Colour::L, Colour::I, Colour::T, Colour::S]
         {
-            let idx = 201 + archetype.as_index();
+            let idx = 101 + archetype.as_index();
             let remaining = (& uncompressed[idx ..= idx]).parse::<usize>().context(context.clone())?;
             match remaining 
             {
@@ -97,13 +98,13 @@ impl notate::Notate for Board
             };
         }
 
-        match & uncompressed[205 ..= 205]
+        match & uncompressed[105 ..= 105]
         {
             "," => {},
             _   => return Err(error::error!("Expected a comma separating the piece counts and moving player.")).context(context.clone())
         }
 
-        let who_to_move = Player::parse(& uncompressed[206 ..= 206]).context(context.clone())?;
+        let who_to_move = Player::parse(& uncompressed[106 ..= 106]).context(context.clone())?;
         match who_to_move
         {
             Player::X | Player::O => {},
@@ -319,6 +320,41 @@ impl Board
         let mut b = Board { score_tiles, piece_tiles, pieces_remaining, attach_points, to_move };
         b.calculate_attach_points_from_scratch();
         Ok(b)
+    }
+
+    ///
+    /// Returns the hexadecimal notation for the tile.
+    ///
+    pub fn notate_tile (& self, i: i32, j: i32) -> String 
+    {
+        let value = 5 * self.player_at(i, j).as_index_null() + self.colour_at(i, j).as_index_null();
+        ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"].get(value).unwrap().to_string()
+    }
+
+    ///
+    /// Parses the tile.
+    ///
+    pub fn parse_tile (s: & str) -> Result<(Player, Colour)>
+    {
+        match s 
+        {
+            "0" => Ok((Player::None, Colour::None)),
+            "1" => Ok((Player::None, Colour::L)),
+            "2" => Ok((Player::None, Colour::I)),
+            "3" => Ok((Player::None, Colour::T)),
+            "4" => Ok((Player::None, Colour::S)),
+            "5" => Ok((Player::X,    Colour::None)),
+            "6" => Ok((Player::X,    Colour::L)),
+            "7" => Ok((Player::X,    Colour::I)),
+            "8" => Ok((Player::X,    Colour::T)),
+            "9" => Ok((Player::X,    Colour::S)),
+            "a" => Ok((Player::O,    Colour::None)),
+            "b" => Ok((Player::O,    Colour::L)),
+            "c" => Ok((Player::O,    Colour::I)),
+            "d" => Ok((Player::O,    Colour::T)),
+            "e" => Ok((Player::O,    Colour::S)),
+            _   => Err(error::error!(format!("Invalid notation '{}' for tile.", s)))
+        }
     }
 
     ///

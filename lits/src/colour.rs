@@ -75,7 +75,22 @@ impl Colour
             Colour::I    => 1,
             Colour::T    => 2,
             Colour::S    => 3,
-            Colour::None => panic!("Cannot take index of the null colour.")
+            _            => panic!("Can't take null index in the non-null function.")
+        }
+    }
+
+    ///
+    /// Returns the index of this colour including null.
+    ///
+    pub fn as_index_null (& self) -> usize 
+    {
+        match self 
+        {
+            Colour::L    => 1,
+            Colour::I    => 2,
+            Colour::T    => 3,
+            Colour::S    => 4,
+            Colour::None => 0
         }
     }
 
