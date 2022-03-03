@@ -1,17 +1,11 @@
 
-# blits
+# blits: The Battle of LITS
 
 A Cargo workspace containing a project to build a client and engine for the game The Battle of LITS.
-
-# Crates
 
 ## lits 
 
 A library implementing the game The Battle of LITS.
-
-## litstp
-
-A library implementing a LITS text protocol.
 
 ## client 
 
