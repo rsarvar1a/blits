@@ -2,7 +2,6 @@
 use crate::config::*;
 
 use lits::{Board, Player, Tetromino};
-use utils::notate::Notate;
 
 use std::cell::UnsafeCell;
 use std::sync::Arc;
@@ -313,7 +312,10 @@ impl Searcher
     pub fn launch (& mut self)
     {
         self.search_status.set(SearcherEvent::Start.into());
+
+        self.pool().set_stop_requirement(false);
         self.search_root();
+
         self.search_status.set(SearcherEvent::Finish.into());
     }
 

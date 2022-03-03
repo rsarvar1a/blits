@@ -13,7 +13,6 @@ use utils::notate::Notate;
 ///
 pub struct LTPInterface 
 {
-    config: Config,
     mcts: MCTS,
     state: Game
 }
@@ -34,7 +33,7 @@ impl LTPInterface
     pub fn new (config: & Config) -> Result<LTPInterface>
     {
         let mcts = MCTS::new(config.clone())?;
-        Ok(LTPInterface { config: config.clone(), mcts, state: Game::new() })
+        Ok(LTPInterface { mcts, state: Game::new() })
     }
 
     ///

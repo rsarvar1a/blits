@@ -169,32 +169,6 @@ impl Node
     }
 
     ///
-    /// Updates this node's stats.
-    ///
-    pub fn update (& mut self, value: f32, visits: f32)
-    {
-        self.n += visits;
-        self.v += value;
-    }
-
-    ///
-    /// Updates this node's stats by way of overwriting.
-    ///
-    pub fn update_overwrite (& mut self, new_val: f32, new_vis: f32)
-    {
-        self.n = new_vis;
-        self.v = new_val;
-    }
-
-    ///
-    /// Sets a new probability on this node.
-    ///
-    pub fn update_prob (& mut self, prob: f32)
-    {
-        self.p = prob;
-    }
-
-    ///
     /// Visits this node.
     ///
     pub fn visit (& mut self, oldest_child: NodeID, num_children: usize)

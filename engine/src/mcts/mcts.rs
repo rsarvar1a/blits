@@ -53,7 +53,11 @@ impl MCTS
     pub fn new (config: Config) -> Result<MCTS>
     {
         let mctsconfig = config.mcts;
-        let policy = Network::from_best(& config.neural)?;
+        let policy = match config.neural.use_best 
+        {
+            true  => Network::from_best(& config.neural)?,
+            false => Network::from_template(& config.neural)?
+        };
         let threadpool = ThreadPool::new();
 
         let mcts = MCTS { config: mctsconfig, policy, threadpool, best_move: 0 };
