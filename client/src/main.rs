@@ -26,7 +26,7 @@ use utils::*;
 #[derive(Parser)]
 struct CLIArgs 
 {
-    #[clap(short, long, default_value = "config/config.toml")]
+    #[clap(short, long, default_value = "/home/rsarvaria/Development/projects/blits/env/client.toml")]
     config: String
 }
 
@@ -54,7 +54,7 @@ fn main() -> Result<()>
     // Run any required global initializers.
 
     Tetromino::initialize();
-    let _logger = log::initialize(& config.log_path, "client")?;
+    let _logger = log::initialize(& config.log_path, "client", "info, wgpu_core::device=warn")?;
     LtpController::initialize(& config.exe_path);
 
     // Create state and feed resources to application.

@@ -113,18 +113,20 @@ impl LtpController
         let commandline = match args.len()
         {
             0 => format!(
-                "{}",
+                "{}\n",
                 command.command()
             ),
             _ => format!(
-                "{} {}",
+                "{} {}\n",
                 command.command(), args.join(" ")
             )
         };
 
         // Delivers the command to the engine via stdin.
 
-        self.handle.send(Command::new(& commandline));
+        let cmd = Command::new(& commandline);
+        self.handle.send(cmd.clone());
+        log::info!("Sent command: {}", cmd.to_string());
     }
 
     ///
@@ -164,6 +166,7 @@ impl LtpController
     {
         if let Ok(resp) = self.handle.wait_response(Duration::from_millis(100))
         {
+            log::info!("Received response '{}'.", resp.text());
             return Ok(resp.text());
         }
         Err(error::error!("Could not find a response; try again later."))

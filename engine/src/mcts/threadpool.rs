@@ -1,7 +1,10 @@
 
 #![allow(mutable_transmutes)]
 
-use lits::Board;
+use crate::config::*;
+use crate::neural::network::Network;
+
+use lits::{Board, Tetromino};
 
 use std::alloc::{Layout, alloc_zeroed, dealloc};
 use std::cell::UnsafeCell;
@@ -14,8 +17,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::thread::JoinHandle;
 
-use super::node::MoveID;
-use super::mcts::*;
+use super::node::{Outcome, MoveID};
 use super::searcher::*;
 use super::sync::*;
 
@@ -48,10 +50,13 @@ impl std::cmp::PartialOrd for SearcherStats
 ///
 /// The resource manager for the threads that make up an MCTS search pool.
 ///
+#[derive(Debug)]
 pub struct ThreadPool
 {
-    pub mcts: * const MCTS,
+    pub config: Config,
+
     pub state: Board,
+    pub best_move: MoveID,
 
     pub threads: Vec<UnsafeCell<* mut Searcher>>,
     pub handles: Vec<JoinHandle<()>>,
@@ -65,7 +70,7 @@ impl ThreadPool
     ///
     /// Attaches a new thread to the thread pool and starts it.
     ///
-    pub fn attach_one (& mut self)
+    pub fn attach_one (& mut self, policy: & Network)
     {
         unsafe 
         {
@@ -76,9 +81,8 @@ impl ThreadPool
             let searcher_id = self.threads.len();
             let cond_variable = self.cond.clone();
             let pool : * mut ThreadPool = self;
-            let config = (* self.mcts).config();
 
-            ptr::write(searcher_ptr, Searcher::new(pool, config, searcher_id, cond_variable));
+            ptr::write(searcher_ptr, Searcher::new(pool, self.config.clone(), policy, searcher_id, cond_variable));
 
             self.threads.push(UnsafeCell::new(searcher_ptr));
             let searcher_handle = SearcherHandle { ptr: UnsafeCell::new(searcher_ptr) };
@@ -99,16 +103,6 @@ impl ThreadPool
 
             self.handles.push(handle);
         }
-    }
-
-    ///
-    /// Clears all threads.
-    ///
-    pub fn clear (& mut self)
-    {
-        self.threads.iter_mut()
-            .map(|handle| unsafe { & mut ** (* handle).get() })
-            .for_each(|thread| thread.clear());
     }
 
     ///
@@ -160,74 +154,12 @@ impl ThreadPool
         self.cond.set();
         self.wait_for(SearcherEvent::Start);
 
+        thread::sleep(std::time::Duration::from_millis(self.config.mcts.max_time_ms as u64));
+        self.set_stop_requirement(true);
+
         self.cond.lock();
         self.wait_for(SearcherEvent::Finish);
 
-        self.set_stop_requirement(true);
-
-        log::info!("Search ended on position '{}'.", state.notate());
-
-        let mut best_move  = 0;
-        let mut best_score = f32::NEG_INFINITY;
-
-        self.threads.iter_mut()
-            .map(|handle| unsafe { & mut (** handle.get()) })
-            .for_each(
-                |thread|
-                {
-                    let (this_piece, this_score) = thread.best_av_pair().clone();
-                    if this_score > best_score 
-                    {
-                        best_score = this_score;
-                        best_move  = this_piece;
-                    }
-                }
-            );
-
-        self.parent().best_move = best_move;
-
-        self.print_move_table();
-    }
-
-    ///
-    /// Creates a new thread pool and attaches the main thread.
-    ///
-    pub fn new () -> ThreadPool
-    {
-        let pool = ThreadPool 
-        {
-            mcts: ptr::null(),
-            state: Board::blank(),
-
-            threads: Vec::new(),
-            handles: Vec::new(),
-
-            cond: Arc::new(Latch::new()),
-
-            stop: AtomicBool::new(true)
-        };
-
-        // Lock all conditions.
-
-        pool.cond.lock();
-    
-        pool
-    }
-
-    ///
-    /// Returns the MCTS instance behind this pool.
-    ///
-    pub fn parent (& mut self) -> & mut MCTS 
-    {
-        unsafe { mem::transmute(& self.mcts) }
-    }
-
-    ///
-    /// Logs the move table formed by combining the roots of 
-    /// each thread's move pool.
-    ///
-    pub fn print_move_table (& self)
-    {
         let mut movemap : HashMap<MoveID, SearcherStats> = HashMap::new();
         for mv in & self.state.enumerate_moves()
         {
@@ -245,15 +177,71 @@ impl ThreadPool
                         let key = child.in_action;
                         let mut entry = movemap.get_mut(& key).unwrap();
 
-                        entry.visits += child.n;
-                        entry.prob = ((entry.components as f32 * entry.prob) + child.p) / (entry.components as f32 + 1.0);
-                        entry.eval = ((entry.components as f32 * entry.eval) + child.v) / (entry.components as f32 + 1.0);
+                        if ! child.is_unsolved()
+                        {
+                            entry.visits += child.n;
+                            entry.prob = ((entry.components as f32 * entry.prob) + child.p) / (entry.components as f32 + 1.0);
+                            entry.components += 1;
+
+                            entry.eval = match child.outcome.unwrap() 
+                            {
+                                Outcome::Win  => f32::INFINITY,
+                                Outcome::Loss => f32::NEG_INFINITY
+                            };
+                        }
+                        else 
+                        {
+                            entry.visits += child.n;
+                            entry.prob = ((entry.components as f32 * entry.prob) + child.p) / (entry.components as f32 + 1.0);
+                            entry.eval = ((entry.components as f32 * entry.eval) - child.v) / (entry.components as f32 + 1.0);
+                            entry.components += 1;
+                        }
                     }
                 }
             );
 
         let mut movevec = movemap.into_values().into_iter().collect::<Vec<SearcherStats>>();
-        movevec.sort_by(|a, b| std::primitive::f32::total_cmp(& a.eval, & b.eval));
+        movevec.sort_by(|a, b| std::primitive::f32::total_cmp(& b.eval, & a.eval));
+
+        self.best_move = Tetromino::parse(& movevec.first().unwrap().tetromino).unwrap().into();
+        self.print_move_table(& movevec);
+
+        log::info!("Search ended on position '{}'.", state.notate());
+    }
+
+    ///
+    /// Creates a new thread pool and attaches the main thread.
+    ///
+    pub fn new (config: & Config) -> ThreadPool
+    {
+        let pool = ThreadPool 
+        {
+            config: config.clone(),
+            state: Board::blank(),
+            best_move: 0,
+
+            threads: Vec::new(),
+            handles: Vec::new(),
+
+            cond: Arc::new(Latch::new()),
+
+            stop: AtomicBool::new(true)
+        };
+
+        // Lock all conditions.
+
+        pool.cond.lock();
+    
+        pool
+    }
+
+    ///
+    /// Logs the move table formed by combining the roots of 
+    /// each thread's move pool.
+    ///
+    pub fn print_move_table (& self, movevec: & Vec<SearcherStats>)
+    {
+        let mut movevec = movevec.clone();
         movevec.resize(20, SearcherStats { tetromino: "".to_owned(), eval: 0.0, prob: 0.0, visits: 0.0, components: 0 });
 
         let total_sims : usize = self.threads.iter()
@@ -268,7 +256,7 @@ impl ThreadPool
     ///
     /// Unsafely sets the number of threads.
     ///
-    pub fn set_num_threads (& mut self, num: usize)
+    pub fn set_num_threads (& mut self, num: usize, policy: & Network)
     {
         if num > 0 
         {
@@ -276,17 +264,9 @@ impl ThreadPool
             self.kill();
             for _ in 0 .. num 
             {
-                self.attach_one();
+                self.attach_one(policy);
             }
         }
-    }
-
-    ///
-    /// Sets the parent.
-    ///
-    pub fn set_parent (& mut self, mcts: & MCTS)
-    {
-        self.mcts = mcts;
     }
 
     ///
@@ -294,7 +274,7 @@ impl ThreadPool
     ///
     pub fn set_stop_requirement (& mut self, to: bool)
     {
-        self.stop.store(to, Ordering::Relaxed);
+        self.stop.store(to, Ordering::SeqCst);
     }
 
     ///

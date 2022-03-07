@@ -267,7 +267,7 @@ impl View
         {
             // Parse the response to get the tetromino.
 
-            let tetromino = Tetromino::parse(& response.unwrap()).unwrap();
+            let tetromino = Tetromino::parse(& response.unwrap().split_once(" ").unwrap().1.to_string()).unwrap();
 
             // Play the move and update the app state.
 

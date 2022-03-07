@@ -6,25 +6,22 @@ use crate::neural::network::Network;
 
 use lits::*;
 
-use std::mem;
-use std::sync::atomic::Ordering;
-
-use super::node::MoveID;
 use super::searcher::*;
 use super::threadpool::*;
 
 use utils::error::*;
+use utils::log;
 use utils::notate::Notate;
 
 ///
 /// The manager for an MCTS search.
 ///
+#[derive(Debug)]
 pub struct MCTS 
 {
     threadpool: ThreadPool,
     policy: Network,
-    config: MCTSConfig,
-    pub best_move: MoveID
+    config: MCTSConfig
 }
 
 impl MCTS 
@@ -36,7 +33,7 @@ impl MCTS
     ///
     pub fn best_move (& self) -> Tetromino 
     {
-        self.best_move.into()
+        self.threadpool.best_move.into()
     }
 
     ///
@@ -58,12 +55,11 @@ impl MCTS
             true  => Network::from_best(& config.neural)?,
             false => Network::from_template(& config.neural)?
         };
-        let threadpool = ThreadPool::new();
+        let threadpool = ThreadPool::new(& config);
 
-        let mcts = MCTS { config: mctsconfig, policy, threadpool, best_move: 0 };
+        let mut mcts = MCTS { config: mctsconfig, policy, threadpool };
 
-        mcts.threadpool().set_parent(& mcts);
-        mcts.threadpool().set_num_threads(mctsconfig.num_threads);
+        mcts.threadpool.set_num_threads(mctsconfig.num_threads, & mcts.policy);
 
         Ok(mcts)
     }
@@ -71,35 +67,27 @@ impl MCTS
     ///
     /// Returns the policy handle, but highly unsafely.
     ///
-    pub fn policy (& self) -> & mut Network 
+    pub fn policy (& mut self) -> & mut Network 
     {
-        unsafe 
-        { 
-            mem::transmute::<& Network, & mut Network>(
-                & self.policy
-            ) 
-        }
+        & mut self.policy
     }
 
     ///
     /// Remembers a state-result pair.
     ///
-    pub fn remember (& self, board: & Board, outcome: & Outcome)
+    pub fn remember (& mut self, board: & Board, outcome: & Outcome)
     {
-        self.policy().remember(board, outcome);
+        self.policy.remember(board, outcome);
     }
 
     ///
     /// Starts a search on this threadpool, with the given starting position,
     /// optimizing for the given player.
     ///
-    pub fn search (& self, position: & Board, uci: bool)
+    pub fn search (& mut self, position: & Board, uci: bool)
     {
         let pool = self.threadpool();
         pool.state = position.clone();
-
-        pool.wait_for(SearcherEvent::Finish);
-        pool.stop.store(false, Ordering::Relaxed);
 
         for handle in pool.threads.iter_mut()
         {
@@ -113,26 +101,25 @@ impl MCTS
 
         if uci 
         {
-            println!("= {}", self.best_move().notate());
+            log::info!("Sent '= 0 {}'.", self.best_move().notate());
+            println!("= 0 {}\n", self.best_move().notate());
         }
     }
 
     ///
     /// Searches and blocks until the move is found.
     ///
-    pub fn search_return (& self, position: & Board) -> Tetromino
-    {
-        let pool = self.threadpool();
-        
+    pub fn search_return (& mut self, position: & Board) -> Tetromino
+    { 
         self.search(position, false);
-        pool.wait_for(SearcherEvent::Finish);
+        self.threadpool.wait_for(SearcherEvent::Finish);
         self.best_move()
     }
 
     ///
     /// Stops an ongoing search early.
     ///
-    pub fn stop_early (& self)
+    pub fn stop_early (& mut self)
     {
         self.threadpool().set_stop_requirement(true);
     }
@@ -140,13 +127,25 @@ impl MCTS
     ///
     /// Returns a non-exclusive-mut reference to the threadpool for use 
     ///
-    pub fn threadpool (& self) -> & mut ThreadPool
+    pub fn threadpool (& mut self) -> & mut ThreadPool
     {
-        unsafe 
-        {
-            mem::transmute::<& ThreadPool, & mut ThreadPool>(
-                & self.threadpool
-            )
-        }
+        & mut self.threadpool
+    }
+
+    ///
+    /// Trains the root model and passes it to each thread.
+    ///
+    pub fn train (& mut self) 
+    {
+        self.policy.train();
+
+        self.threadpool.threads.iter_mut()
+            .map(|handle| unsafe { & mut (** handle.get()) })
+            .for_each(
+                |thread|
+                {
+                    thread.network = self.policy.copy();
+                }
+            );
     }
 }

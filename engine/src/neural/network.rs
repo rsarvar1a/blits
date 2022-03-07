@@ -56,32 +56,32 @@ impl Network
     }
 
     ///
+    /// Creates an exact copy of this network.
+    ///
+    pub fn copy (& self) -> Network 
+    {
+        let config = self.config.clone();
+        
+        let mut vs = VarStore::new(Device::cuda_if_available());
+        vs.copy(& self.vs).unwrap();
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let tmp_path = tmp_dir.path().join("tmp-model.pt");
+        self.model.save(& tmp_path).unwrap();
+        let model = TrainableCModule::load(& tmp_path, vs.root()).unwrap();
+
+        let mem = Vec::new();
+
+        Network { config, vs, model, mem }
+    }
+
+    ///
     /// For a given input tensor of board images, predicts the policy-value pairs.
     ///
     pub fn forward (& self, input: Tensor) -> (Tensor, Tensor)
     {
-        let input_tensor = IValue::Tensor(input);
-        let ivalue_tuple = self.model.forward_is(& [input_tensor]).unwrap();
-
-        let mut policy = Tensor::new();
-        let mut values = Tensor::new();
-
-        match ivalue_tuple 
-        {
-            IValue::Tuple(tensor_vec) => 
-            {
-                if let IValue::Tensor ( tensor ) = tensor_vec.get(0).unwrap()
-                {
-                    policy = tensor.copy();
-                }
-                if let IValue::Tensor ( tensor ) = tensor_vec.get(1).unwrap()
-                {
-                    values = tensor.copy();
-                }
-            },
-            _ => panic!("Failed to unroll forward from model.")
-        };
-
+        let ivalue_tuple = self.model.forward_is(& [IValue::from(input)]).unwrap();
+        let (policy, values) = <(Tensor, Tensor)>::try_from(ivalue_tuple).unwrap();
         (policy, values)
     }
 
@@ -92,7 +92,7 @@ impl Network
     {
         let vs = VarStore::new(Device::cuda_if_available());
         let mem = vec![];
-        let artifact_path = format!("{}/trained/{}", config.path, artifact);
+        let artifact_path = std::env::current_dir()?.join(& config.path).join("trained").join(& artifact).to_str().unwrap().to_owned();
         let model = tch::TrainableCModule::load(& artifact_path, vs.root()).context(format!("Failed to load model file from '{}'.", & artifact_path))?;
 
         let mut net = Network { config: config.clone(), vs, model, mem };
@@ -116,7 +116,7 @@ impl Network
     {
         let vs = VarStore::new(Device::cuda_if_available());
         let mem = vec![];
-        let template_path = format!("{}/{}", config.path, config.template);
+        let template_path = std::env::current_dir()?.join(& config.path).join(& config.template).to_str().unwrap().to_owned();
         let model = tch::TrainableCModule::load(& template_path, vs.root()).context(format!("Failed to load template file from '{}'.", & template_path))?;
 
         let mut net = Network { config: config.clone(), vs, model, mem };
@@ -197,7 +197,7 @@ impl Network
     ///
     pub fn save (& self, group: & str, path: & str) -> Result<()> 
     {
-        let artifact_path = format!("{}/trained/{}/{}", self.config.path, group, path);
+        let artifact_path = std::env::current_dir()?.join(& self.config.path).join("trained").join(group).join(path).to_str().unwrap().to_owned();
         self.model.save(& artifact_path).context(error!(format!("Failed to save model to path '{}'.", & artifact_path)))?;
         Ok(())
     }

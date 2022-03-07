@@ -1,8 +1,0 @@
-
-log_path = "logs"
-
-[neural]
-
-path     = "models"
-template = "template.pt"
-best     = "best.pt"

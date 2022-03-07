@@ -23,7 +23,7 @@ use utils::*;
 /// - a list of points, which are positive offsets to the anchor and outline the shape;
 /// - a transform, which is the canonical transform in use, in terms of the reference shape.
 ///
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Tetromino 
 {
     colour: Colour,

@@ -13,8 +13,8 @@ use std::io::Read;
 use clap::Parser;
 
 use interfaces::*;
-use lits::Tetromino;
-
+use lits::{Board, Tetromino};
+use neural::network::Network;
 use utils::*;
 
 ///
@@ -26,7 +26,7 @@ struct CLIArgs
     #[clap(short, long, default_value = "ltpi")]
     mode: String,
 
-    #[clap(short, long, default_value = "config/config.toml")]
+    #[clap(short, long, default_value = "/home/rsarvaria/Development/projects/blits/env/engine.toml")]
     config: String
 }
 
@@ -38,7 +38,7 @@ fn main () -> Result<()>
     OpenOptions::new().read(true).open(& args.config)?.read_to_string(& mut config_str)?;
     let config : config::Config = toml::from_str(& config_str)?;
 
-    let _logger = log::initialize(& config.log_path, "engine");
+    let _logger = log::initialize(& config.log_path, "engine", "debug");
     Tetromino::initialize();
 
     match args.mode.as_str() 
@@ -47,6 +47,12 @@ fn main () -> Result<()>
         {
             let mut ltpinterface = ltpi::LTPInterface::new(& config)?;
             ltpinterface.run_loop();
+        },
+        "sanity-check" => 
+        {
+            let model = Network::from_best(& config.neural)?;
+            let (policy, value) = model.predict(& Board::blank());
+            log::info!("({:?}, {:?})", policy, value);
         },
         _ => 
         {

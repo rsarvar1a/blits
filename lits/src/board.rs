@@ -1,4 +1,6 @@
 
+use std::borrow::Borrow;
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::colour::Colour;
@@ -23,7 +25,10 @@ pub struct Board
     piece_tiles: Vec<Vec<Colour>>,
     pieces_remaining: Vec<usize>,
     attach_points: BTreeMap<Point, BTreeSet<Colour>>,
-    to_move: Player
+    to_move: Player,
+
+    move_cache: RefCell<Option<BTreeSet<Tetromino>>>,
+    has_moves: RefCell<Option<bool>>
 }
 
 impl notate::Notate for Board 
@@ -158,7 +163,9 @@ impl Board
             piece_tiles: vec![vec![Colour::None; 10]; 10],
             pieces_remaining: vec![5; 4],
             attach_points: BTreeMap::new(),
-            to_move: Player::X
+            to_move: Player::X,
+            move_cache: RefCell::new(None),
+            has_moves: RefCell::new(None)
         };
 
         for i in 0 .. 10 
@@ -170,6 +177,15 @@ impl Board
         }
 
         board
+    }
+
+    ///
+    /// Busts the cache.
+    ///
+    pub fn cache_bust (& mut self)
+    {
+        * self.has_moves.borrow_mut() = None;
+        * self.move_cache.borrow_mut() = None;
     }
 
     ///
@@ -254,6 +270,12 @@ impl Board
     pub fn cycle_player (& mut self, i: i32, j: i32)
     {
         self.score_tiles[i as usize][j as usize] = self.score_tiles[i as usize][j as usize].next_and_none();
+        self.score_tiles[(9 - i) as usize][(9 - j) as usize] = match self.score_tiles[i as usize][j as usize]
+        {
+            Player::None => Player::None,
+            Player::X    => Player::O,
+            Player::O    => Player::X
+        };
     }
 
     ///
@@ -261,6 +283,11 @@ impl Board
     ///
     pub fn enumerate_moves (& self) -> BTreeSet<Tetromino>
     {
+        if let Some(cache) = self.move_cache.borrow().clone()
+        {
+            return cache;
+        }
+
         let mut result : BTreeSet<Tetromino> = BTreeSet::new();
 
         let available_colours = [Colour::L, Colour::I, Colour::T, Colour::S].into_iter()
@@ -284,6 +311,9 @@ impl Board
             }
         }
 
+        * self.move_cache.borrow_mut() = Some(result.clone());
+        * self.has_moves.borrow_mut() = Some(! result.is_empty());
+
         result
     }
 
@@ -292,7 +322,37 @@ impl Board
     ///
     pub fn has_moves (& self) -> bool 
     {
-        ! self.enumerate_moves().is_empty()
+        if let Some(status) = self.has_moves.borrow().clone()
+        {
+            return status;
+        }
+
+        let mut has = false;
+
+        let available_colours = [Colour::L, Colour::I, Colour::T, Colour::S].into_iter()
+            .filter(|& c| self.pieces_remaining[c.as_index()] > 0)
+            .collect::<BTreeSet<Colour>>();
+
+        'outer: for (attach, colours) in & self.attach_points
+        {
+            for anchor in attach.get_potential_anchors()
+            {
+                for colour in colours.intersection(& available_colours)
+                {
+                    for tetromino in Tetromino::get_reference_tetromino(& colour, & anchor).enumerate_transforms()
+                    {
+                        if self.validate_tetromino(& tetromino).is_ok()
+                        {
+                            has = true;
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+        }
+
+        * self.has_moves.borrow_mut() = Some(has);
+        has
     }
 
     ///
@@ -305,6 +365,8 @@ impl Board
         let piece_tiles = piece_tiles.clone();
         let pieces_remaining = remaining.clone();
         let attach_points = BTreeMap::new();
+        let move_cache = RefCell::new(None);
+        let has_moves = RefCell::new(None);
         
         for archetype in [Colour::L, Colour::I, Colour::T, Colour::S]
         {
@@ -317,7 +379,7 @@ impl Board
             }
         }
 
-        let mut b = Board { score_tiles, piece_tiles, pieces_remaining, attach_points, to_move };
+        let mut b = Board { score_tiles, piece_tiles, pieces_remaining, attach_points, to_move, move_cache, has_moves };
         b.calculate_attach_points_from_scratch();
         Ok(b)
     }
@@ -377,7 +439,9 @@ impl Board
 
         // Update the attach points, using the real points as hints.
 
+        self.cache_bust();
         self.update_attach_points_add(tetromino);
+
         Ok(())
     }
 
@@ -482,17 +546,19 @@ impl Board
     pub fn score (& self) -> f64 
     {
         let mut sum = 0.0;
+        let mut diff = 0.0;
         for i in 0 .. 10 
         {
             for j in 0 .. 10 
             {
                 if self.piece_tiles[i][j] == Colour::None 
                 {
-                    sum += self.score_tiles[i][j].value();
+                    diff += self.score_tiles[i][j].value();
+                    sum += 1.0;
                 }
             }
         }
-        sum
+        diff / (sum + 0.1)
     }
 
     ///
@@ -573,7 +639,7 @@ impl Board
     {
         // Check if the piece can be removed.
 
-        let context = notate!("Failed to undo tetromino '{}' in position '{}'.", tetromino, self);
+        let context = format!("Failed to undo tetromino.");
 
         let _ = self.pieces_remaining[tetromino.colour().as_index()] < 5
             || return Err(error::error!(notate!("There are no '{}'s on the board.", tetromino.colour()))).context(context.clone());
@@ -590,7 +656,9 @@ impl Board
 
         // Update the attach points.
 
+        self.cache_bust();
         self.update_attach_points_sub(tetromino);
+
         Ok(())
     }
 
@@ -707,28 +775,28 @@ impl Board
     ///
     pub fn validate_tetromino (& self, tetromino: & Tetromino) -> Result<()>
     {
-        let context = notate!("Tetromino '{}' is not valid in position '{}'.", tetromino, self);
+        let context = "Failed to validate tetromino.";
 
         let points = tetromino.points_real();
         let colour = tetromino.colour();
 
         let _ = self.pieces_remaining[colour.as_index()] > 0 
-            || return Err(error::error!(notate!("There are no more copies of the '{}' tetromino.", colour))).context(context.clone());
+            || return Err(error::error!("No more copies.")).context(context.clone());
 
         let _ = points.iter().all(|& p| p.in_bounds()) 
-            || return Err(error::error!(notate!("Tetromino '{}' is not in bounds.", tetromino))).context(context.clone());
+            || return Err(error::error!("Not in bounds.")).context(context.clone());
        
         let _ = ! points.iter().any(|& p| self.piece_tiles[p.x() as usize][p.y() as usize] != Colour::None)
-            || return Err(error::error!(notate!("Tetromino '{}' overlaps an existing piece.", tetromino))).context(context.clone());
+            || return Err(error::error!("Overlaps an existing piece.")).context(context.clone());
 
         let _ = points.iter().any(|& p| self.point_attach_exists(& p))
-            || return Err(error::error!(notate!("Tetromino '{}' has no attach point.", tetromino))).context(context.clone());
+            || return Err(error::error!("No attach point.")).context(context.clone());
 
         let _ = ! points.iter().any(|& p| self.point_attach_same_colour(& p, & colour))
-            || return Err(error::error!(notate!("Tetromino '{}' attaches to a tetromino of the same colour.", tetromino))).context(context.clone()); 
+            || return Err(error::error!("Attaches to same colour.")).context(context.clone()); 
         
         let _ = ! self.tetromino_attach_forms_o(& points)
-            || return Err(error::error!(notate!("Tetromino '{}' forms a 2-by-2 square.", tetromino))).context(context.clone());
+            || return Err(error::error!("Forms a 2-by-2 square.")).context(context.clone());
 
         Ok(())
     }

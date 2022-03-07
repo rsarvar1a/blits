@@ -48,8 +48,14 @@ impl LTPInterface
         {
             cmdline.clear();
             std::io::stdin().read_line(& mut cmdline).ok().unwrap();
-            let args : Vec<& str> = cmdline.split_whitespace().collect();
+            let mut args : Vec<& str> = cmdline.split_whitespace().collect();
+            if args.len() > 0
+            {
+                args.drain(0 ..= 0);
+            }
             let cmd  : & str = args.first().unwrap_or(& "");
+
+            log::info!("Received command: {} {:?}", cmd, args);
 
             match cmd 
             {

@@ -9,11 +9,12 @@ use utils::error::*;
 ///
 /// Represents a player in a selfplay, which is a rated MCTS instance.
 ///
+#[derive(Debug)]
 pub struct Agent 
 {
-    mcts: MCTS,
-    config: Config,
-    elo: Elo
+    pub mcts: MCTS,
+    pub config: Config,
+    pub elo: Elo
 }
 
 impl Agent 

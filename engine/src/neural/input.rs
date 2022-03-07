@@ -17,7 +17,7 @@ impl std::convert::From<Board> for Input
     fn from (board: Board) -> Input 
     {
         let mut tensor = Tensor::of_slice::<f32>(& [0.0; 500]);
-        tensor = tensor.reshape(& [5, 10, 10]);
+        tensor = tensor.reshape(& [1, 5, 10, 10]);
 
         for i in 0 .. 10 
         {
@@ -35,8 +35,8 @@ impl std::convert::From<Board> for Input
                         false => 0.0
                     };
 
-                    let _ = tensor.i((c as i64, i as i64, j as i64)).fill_(val as f64);
-                }
+                    let _ = tensor.i((0, c as i64, i as i64, j as i64)).fill_(val as f64);
+                } 
 
                 if board.colour_at(i, j) == Colour::None 
                 {
@@ -45,7 +45,7 @@ impl std::convert::From<Board> for Input
                     // perspective and the other player is represented by -1s.
 
                     let pval : f32 = (board.player_at(i, j).value() * board.to_move().value()) as f32;
-                    let _ = tensor.i((4, i as i64, j as i64)).fill_(pval as f64);
+                    let _ = tensor.i((0, 4, i as i64, j as i64)).fill_(pval as f64);
                 }
             }
         }

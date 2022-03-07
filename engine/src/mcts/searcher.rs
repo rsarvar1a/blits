@@ -1,5 +1,6 @@
 
 use crate::config::*;
+use crate::neural::network::Network;
 
 use lits::{Board, Player, Tetromino};
 
@@ -59,7 +60,8 @@ unsafe impl Send for SearcherHandle {}
 pub struct Searcher 
 {
     pub pool: * mut ThreadPool,
-    pub config: MCTSConfig, 
+    pub config: MCTSConfig,
+    pub network: Network,
 
     pub id: TreeID,
     pub kill: AtomicBool,
@@ -113,13 +115,13 @@ impl Searcher
                 if worst_outcome == Some(Outcome::Loss)
                 {
                     node.solve(Outcome::Win);
-                    val = - node.v + node.n + 1.0;
+                    val = - node.v + (node.n + 1.0);
                 }
                 else if node.is_visited() && all 
                 {
                     let best_in_pov = worst_outcome.unwrap().next();
                     node.solve(best_in_pov);
-                    val = - node.v - node.n - 1.0;
+                    val = - node.v - (node.n + 1.0);
                 }
                 else 
                 {
@@ -140,43 +142,6 @@ impl Searcher
             val = - discount * val;
             id = node.parent.unwrap();
         }
-    }
-
-    ///
-    /// Extracts the best A-V pair from the children of the root position.
-    ///
-    pub fn best_av_pair (& mut self) -> (MoveID, f32)
-    {
-        if ! self.state.has_moves()
-        {
-            return (0, f32::NEG_INFINITY);
-        }
-
-        let root = self.root;
-
-        let mut best_move = 0;
-        let mut best_score = f32::NEG_INFINITY;
-
-        for child in self.children_of(root) 
-        {
-            let score = match child.outcome
-            {
-                Some(Outcome::Win)  => f32::NEG_INFINITY,
-                Some(Outcome::Loss) => f32::INFINITY,
-                None                => - child.v / child.n.max(1.0)
-            };
-
-            if score > best_score
-            {
-                best_score = score;
-                best_move = child.action().into();
-            }
-        }
-
-        self.best_move = best_move;
-        self.best_eval = best_score;
-
-        (best_move, best_score)
     }
 
     ///
@@ -287,6 +252,7 @@ impl Searcher
             {
                 return;
             }
+            log::debug!("Launching thread.");
             self.launch();
         }
     }
@@ -311,23 +277,26 @@ impl Searcher
     ///
     pub fn launch (& mut self)
     {
+        log::debug!("Notifying start status.");
         self.search_status.set(SearcherEvent::Start.into());
 
         self.pool().set_stop_requirement(false);
         self.search_root();
 
+        log::debug!("Notifying finish status.");
         self.search_status.set(SearcherEvent::Finish.into());
     }
 
     ///
     /// Returns a new searcher.
     ///
-    pub fn new (pool: * mut ThreadPool, config: MCTSConfig, id: TreeID, cond_variable: Arc<Latch>) -> Searcher
+    pub fn new (pool: * mut ThreadPool, config: Config, policy: & Network, id: TreeID, cond_variable: Arc<Latch>) -> Searcher
     {
         Searcher 
         {
             pool,
-            config,
+            config: config.mcts.clone(),
+            network: policy.copy(),
 
             id,
             kill: AtomicBool::new(false),
@@ -387,18 +356,22 @@ impl Searcher
     ///
     pub fn search_root (& mut self)
     {
-        log::debug!("Searcher started here.");
-
         let allowed_duration = Duration::from_millis(self.config.max_time_ms as u64);
         let start = Instant::now();
-        let mut end = Instant::now();
         let mut num_sims : usize = 0;
 
-        while ! self.stop() && (end - start) < allowed_duration && self.root().is_unsolved()
+        log::debug!("Starting with {} millis and signal '{}'.", allowed_duration.as_millis(), if self.stop() { "stop" } else { "go" });
+
+        while ! self.stop() && (Instant::now() - start) < allowed_duration
         {
             num_sims += 1;
-            end = Instant::now();
             let mut id = self.root;
+
+            if ! self.root().is_unsolved()
+            {
+                log::debug!("Searcher solved its root position.");
+                break;
+            }
 
             loop 
             {
@@ -422,6 +395,7 @@ impl Searcher
         }
 
         self.num_sims = num_sims;
+        self.pool().set_stop_requirement(true);
     }
 
     ///
@@ -429,7 +403,7 @@ impl Searcher
     ///
     pub fn stop (& mut self) -> bool 
     {
-        self.pool().stop.load(Ordering::Relaxed)
+        self.pool().stop.load(Ordering::SeqCst)
     }
 
     ///
@@ -441,7 +415,7 @@ impl Searcher
         let insertion_point = self.tree.len();
         let node = self.node_immut(id);
         let game = node.state.clone();
-        let (policy, value) = self.pool().parent().policy().predict(& game);
+        let (policy, value) = self.network.predict(& game);
         let mut num_children = 0;
         let mut any = false;
         let mut max_action = f32::NEG_INFINITY;
@@ -466,9 +440,14 @@ impl Searcher
                 false => None
             };
             let action : usize = <Tetromino as Into<usize>>::into(tetromino.clone());
-            let pred = policy[action];
+            let pred = 
+                (
+                policy[action] 
+                + next_state.score() as f32 * next_state.to_move().value() as f32) / 2.0
+                ;
             max_action = max_action.max(pred);
-            let child = Node::new(self.tree.len(), Some(id), & next_state, outcome, action, pred);
+            let mut child = Node::new(self.tree.len(), Some(id), & next_state, outcome, action, pred);
+            child.v = next_state.score() as f32 * next_state.to_move().value() as f32;
             self.tree.push(child);
             num_children += 1;
         }

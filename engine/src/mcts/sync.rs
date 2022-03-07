@@ -44,6 +44,7 @@ impl Guard
     }
 }
 
+#[derive(Debug)]
 pub struct Latch 
 {
     mutex: Mutex<bool>,

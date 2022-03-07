@@ -5,13 +5,15 @@ use super::colour::Colour;
 use super::point::Point;
 use super::tetromino::Tetromino;
 
+use utils::*;
+
 ///
 /// An enum that represents the 8 possible transforms on the cartesian tetrominoes.
 ///
 /// Identity refers to the null transformation, while Reflect refers to reflecting 
 /// the tetromino in a mirror parallel to the y-axis.
 ///
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Transform
 {
     Identity,
